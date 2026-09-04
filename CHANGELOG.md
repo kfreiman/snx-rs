@@ -1,3 +1,10 @@
+## Unreleased
+
+- Added an experimental terminal-controlled AmneziaWG launcher that imports saved AmneziaVPN profiles without changing the existing SNX-RS bridge.
+- Added `run_combined_vpn.sh` to start AmneziaWG before the Check Point bridge, stop conflicting `AmneziaVPN.service` instances, and preserve corporate-route precedence, including Docker return traffic.
+- Fixed host-access routing for the combined VPN launcher: connected local networks bypass the AmneziaWG full tunnel, and additional networks can be configured with `HOST_ACCESS_NETWORKS` so SSH access remains available.
+- Fixed combined VPN shutdown so the Check Point bridge cannot retain the lifecycle lock, its process tree is stopped together with the Docker log and authentication workers, and orphaned Docker/network resources are cleaned up.
+
 ## v6.2.4 (2026-08-12)
 * macOS: fixed the installer failing to upgrade over a running daemon (#241).
 * macOS: fixed GUI application crash upon exit when windows are still opened (#242).
