@@ -135,13 +135,21 @@ find_uplink_route() {
 	local route=""
 	local candidate
 	local candidate_interface
+	local candidate_source
 
 	if [ -n "$UPLINK_INTERFACE" ]; then
 		route=$(ip -4 route show table main default dev "$UPLINK_INTERFACE" 2>/dev/null | head -n 1)
 	else
 		while IFS= read -r candidate; do
 			candidate_interface=$(awk '{for (i = 1; i <= NF; i++) if ($i == "dev") {print $(i + 1); exit}}' <<<"$candidate")
-			if [[ -n "$candidate_interface" && "$candidate_interface" != "$BRIDGE_NAME" && "$candidate_interface" != tun* && "$candidate_interface" != wg* && "$candidate_interface" != awg* && "$candidate_interface" != amn* ]]; then
+			if ! is_host_access_interface "$candidate_interface"; then
+				continue
+			fi
+			candidate_source=$(awk '{for (i = 1; i <= NF; i++) if ($i == "src") {print $(i + 1); exit}}' <<<"$candidate")
+			if [ -z "$candidate_source" ]; then
+				candidate_source=$(ip -4 -o addr show dev "$candidate_interface" scope global 2>/dev/null | awk 'NR == 1 {split($4, address, "/"); print address[1]}')
+			fi
+			if [ -n "$candidate_source" ]; then
 				route="$candidate"
 				break
 			fi
@@ -464,6 +472,9 @@ auth_watcher() {
 	local url
 
 	while docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; do
+		local since
+		since=$(docker inspect -f '{{.State.StartedAt}}' "$CONTAINER_NAME" 2>/dev/null || true)
+		[ -n "$since" ] || since=$(date -u '+%Y-%m-%dT%H:%M:%S')
 		while IFS= read -r line; do
 			line="$(trim_line "${line%$'\r'}")"
 
@@ -480,7 +491,7 @@ auth_watcher() {
 					run_playwright_auth "$url" || true
 				fi
 			fi
-		done < <(docker logs -f "$CONTAINER_NAME" 2>&1 || true)
+		done < <(docker logs --since "$since" -f "$CONTAINER_NAME" 2>&1 || true)
 
 		if docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
 			sleep 1
@@ -728,7 +739,18 @@ restart_vpn_container() {
 	local old_ip
 	old_ip=$(container_ip)
 	remove_host_routes "$old_ip"
-	if ! configure_gateway_policy_route; then
+
+	local attempt
+	local configured=false
+	for ((attempt = 1; attempt <= 3; attempt++)); do
+		if configure_gateway_policy_route; then
+			configured=true
+			break
+		fi
+		warn "Не удалось закрепить маршрут до Check Point (попытка $attempt/3); повтор через 2 секунды."
+		sleep 2
+	done
+	if [ "$configured" != true ]; then
 		error "Не удалось закрепить маршрут до Check Point через физический интерфейс."
 		return 1
 	fi

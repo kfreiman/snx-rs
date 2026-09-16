@@ -156,23 +156,40 @@ async function clickAcrossPages(context, selector) {
   return false;
 }
 
-async function completeConfiguredLogin(context) {
-  await fillAcrossPages(context, 'input[type="email"], input[name="identifier"]', process.env.PLAYWRIGHT_USERNAME);
-  await fillAcrossPages(context, 'input[type="password"]', process.env.PLAYWRIGHT_PASSWORD);
-  await fillAcrossPages(
-    context,
-    'input[name="totp"], input[autocomplete="one-time-code"], input[aria-label*="code" i]',
-    process.env.PLAYWRIGHT_OTP,
-  );
+const LOGIN_STEPS = [
+  { name: "email", selector: 'input[type="email"], input[name="identifier"]', value: () => process.env.PLAYWRIGHT_USERNAME },
+  { name: "password", selector: 'input[type="password"]', value: () => process.env.PLAYWRIGHT_PASSWORD },
+  { name: "totp", selector: 'input[name="totp"], input[autocomplete="one-time-code"], input[aria-label*="code" i]', value: () => process.env.PLAYWRIGHT_OTP },
+  { name: "next", selector: 'button:has-text("Next"), button:has-text("Далее")' },
+  { name: "resend", selector: 'button:has-text("Resend it")', enabled: () => !process.env.PLAYWRIGHT_OTP },
+];
 
-  if (!process.env.PLAYWRIGHT_OTP && (await clickAcrossPages(context, 'button:has-text("Resend it")'))) {
-    debugLog("resent Google Prompt");
+async function driveLogin(context, deadline) {
+  while (Date.now() < deadline) {
+    if (context.pages().some((page) => isCallbackUrl(page.url()))) {
+      return;
+    }
+
+    let acted = false;
+    for (const step of LOGIN_STEPS) {
+      if (step.enabled && !step.enabled()) {
+        continue;
+      }
+      const result = step.value
+        ? await fillAcrossPages(context, step.selector, step.value())
+        : await clickAcrossPages(context, step.selector);
+      if (result) {
+        debugLog(`performed login step: ${step.name}`);
+        acted = true;
+        break;
+      }
+    }
+
+    await sleep(acted ? 1_000 : 500);
   }
 }
 
-async function waitForCallback(context) {
-  const deadline = Date.now() + timeoutMs;
-
+async function waitForCallback(context, deadline) {
   while (Date.now() < deadline) {
     for (const page of context.pages()) {
       if (isCallbackUrl(page.url())) {
@@ -203,15 +220,15 @@ async function main() {
     debugLog(`initial page ${pageSummary(page)} state=${await pageState(page)} controls=${await pageControls(page)}`);
 
     if (!isCallbackUrl(page.url())) {
-      await completeConfiguredLogin(context);
+      await driveLogin(context, Date.now() + timeoutMs);
       for (const currentPage of context.pages()) {
         debugLog(
-          `after configured login ${pageSummary(currentPage)} state=${await pageState(currentPage)} controls=${await pageControls(currentPage)}`,
+          `after login attempt ${pageSummary(currentPage)} state=${await pageState(currentPage)} controls=${await pageControls(currentPage)}`,
         );
       }
     }
 
-    await waitForCallback(context);
+    await waitForCallback(context, Date.now() + Math.min(timeoutMs, 10_000));
   } finally {
     await context.close();
   }
