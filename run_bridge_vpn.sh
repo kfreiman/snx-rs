@@ -40,6 +40,9 @@ PLAYWRIGHT_OTP="${PLAYWRIGHT_OTP:-}"
 PLAYWRIGHT_DEBUG="${PLAYWRIGHT_DEBUG:-false}"
 PLAYWRIGHT_PROFILE_VOLUME="${PLAYWRIGHT_PROFILE_VOLUME-snx-rs-playwright-profile}"
 PLAYWRIGHT_CONTEXT="${PLAYWRIGHT_CONTEXT:-$SCRIPT_DIR/docker/playwright}"
+SNX_SESSIONS_VOLUME="${SNX_SESSIONS_VOLUME:-snx-rs-sessions}"
+DOCKER_USE_SUDO="${DOCKER_USE_SUDO:-auto}"
+DOCKER_SUDO=false
 
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -85,6 +88,74 @@ warn() {
 error() {
 	echo -e "${RED}[ERROR]${NC} $1" >&2
 	log "ERROR" "$1"
+}
+
+docker() {
+	if [ "$DOCKER_SUDO" = true ]; then
+		sudo -n docker --context default "$@"
+	else
+		command docker "$@"
+	fi
+}
+
+configure_docker() {
+	case "$DOCKER_USE_SUDO" in
+		true|false|auto) ;;
+		*)
+			error "DOCKER_USE_SUDO должен быть auto, true или false."
+			return 1
+			;;
+	esac
+
+	local security_options=""
+	if [ "$DOCKER_USE_SUDO" != true ]; then
+		security_options=$(command docker info --format '{{json .SecurityOptions}}' 2>/dev/null || true)
+	fi
+
+	if [ "$DOCKER_USE_SUDO" = true ]; then
+		if ! sudo -n docker --context default info >/dev/null 2>&1; then
+			error "Для Check Point bridge нужен rootful Docker. Запустите системный Docker и убедитесь, что sudo доступен."
+			return 1
+		fi
+		DOCKER_SUDO=true
+		export DOCKER_USE_SUDO
+		return 0
+	fi
+
+	if [ "$DOCKER_USE_SUDO" = auto ] && [ -z "$security_options" ]; then
+		if sudo -n docker --context default info >/dev/null 2>&1; then
+			info "Текущий Docker daemon недоступен пользователю; для Check Point bridge используется системный Docker через sudo."
+			DOCKER_SUDO=true
+			DOCKER_USE_SUDO=true
+			export DOCKER_USE_SUDO
+			return 0
+		fi
+	fi
+
+	if [[ "$security_options" == *rootless* ]]; then
+		if [ "$DOCKER_USE_SUDO" = false ]; then
+			error "Rootless Docker не подходит для Check Point bridge; используйте rootful Docker или DOCKER_USE_SUDO=auto."
+			return 1
+		fi
+		info "Обнаружен rootless Docker; для Check Point bridge используется системный Docker через sudo."
+		if ! sudo -n docker --context default info >/dev/null 2>&1; then
+			error "Для Check Point bridge нужен rootful Docker. Запустите системный Docker и убедитесь, что sudo доступен."
+			return 1
+		fi
+		DOCKER_SUDO=true
+		DOCKER_USE_SUDO=true
+		export DOCKER_USE_SUDO
+		return 0
+	fi
+
+	if [ -z "$security_options" ] || ! command docker info >/dev/null 2>&1; then
+		error "Не удалось проверить Docker daemon."
+		return 1
+	fi
+
+	DOCKER_SUDO=false
+	DOCKER_USE_SUDO=false
+	export DOCKER_USE_SUDO
 }
 
 container_is_running() {
@@ -137,24 +208,25 @@ find_uplink_route() {
 	local candidate_interface
 	local candidate_source
 
-	if [ -n "$UPLINK_INTERFACE" ]; then
-		route=$(ip -4 route show table main default dev "$UPLINK_INTERFACE" 2>/dev/null | head -n 1)
-	else
-		while IFS= read -r candidate; do
-			candidate_interface=$(awk '{for (i = 1; i <= NF; i++) if ($i == "dev") {print $(i + 1); exit}}' <<<"$candidate")
-			if ! is_host_access_interface "$candidate_interface"; then
-				continue
-			fi
-			candidate_source=$(awk '{for (i = 1; i <= NF; i++) if ($i == "src") {print $(i + 1); exit}}' <<<"$candidate")
-			if [ -z "$candidate_source" ]; then
-				candidate_source=$(ip -4 -o addr show dev "$candidate_interface" scope global 2>/dev/null | awk 'NR == 1 {split($4, address, "/"); print address[1]}')
-			fi
-			if [ -n "$candidate_source" ]; then
-				route="$candidate"
-				break
-			fi
-		done < <(ip -4 route show table main default 2>/dev/null)
-	fi
+	while IFS= read -r candidate; do
+		candidate_interface=$(awk '{for (i = 1; i <= NF; i++) if ($i == "dev") {print $(i + 1); exit}}' <<<"$candidate")
+		if [ -n "$UPLINK_INTERFACE" ]; then
+			[ "$candidate_interface" = "$UPLINK_INTERFACE" ] || continue
+			route="$candidate"
+			break
+		fi
+		if ! is_host_access_interface "$candidate_interface"; then
+			continue
+		fi
+		candidate_source=$(awk '{for (i = 1; i <= NF; i++) if ($i == "src") {print $(i + 1); exit}}' <<<"$candidate")
+		if [ -z "$candidate_source" ]; then
+			candidate_source=$(ip -4 -o addr show dev "$candidate_interface" scope global 2>/dev/null | awk 'NR == 1 {split($4, address, "/"); print address[1]}')
+		fi
+		if [ -n "$candidate_source" ]; then
+			route="$candidate"
+			break
+		fi
+	done < <(ip -4 route show table main default 2>/dev/null)
 
 	if [ -z "$route" ]; then
 		error "В основной таблице маршрутизации не найден IPv4 default route."
@@ -521,13 +593,24 @@ check_dependencies() {
 	fi
 
 	local cmd
-	for cmd in docker resolvectl awk getent ip curl sudo grep; do
+	for cmd in resolvectl awk getent ip curl sudo grep; do
 		if ! command -v "$cmd" &>/dev/null; then
 			error "Отсутствует необходимая утилита: '$cmd'."
 			exit 1
 		fi
 	done
+	if ! type -P docker >/dev/null 2>&1; then
+		error "Отсутствует необходимая утилита: 'docker'."
+		exit 1
+	fi
 
+	if ! sudo -v; then
+		error "Не удалось получить права sudo для настройки сети."
+		exit 1
+	fi
+	if ! configure_docker; then
+		exit 1
+	fi
 	if ! docker info &>/dev/null; then
 		error "Docker не запущен либо текущий пользователь не имеет к нему доступа."
 		exit 1
@@ -837,7 +920,7 @@ start_container() {
 		--cap-add=SYS_ADMIN \
 		-p 7779:7779 \
 		--name "$CONTAINER_NAME" \
-		--volume=/opt/snx/sessions:/var/cache/snx-rs/sessions \
+		--volume="$SNX_SESSIONS_VOLUME:/var/cache/snx-rs" \
 		-v /lib/modules:/lib/modules:ro \
 		ghcr.io/leleobhz/snx-rs-docker:latest \
 		/usr/bin/snx-rs \

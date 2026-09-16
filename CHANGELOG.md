@@ -4,6 +4,9 @@
 - Added `run_combined_vpn.sh` to start AmneziaWG before the Check Point bridge, stop conflicting `AmneziaVPN.service` instances, and preserve corporate-route precedence, including Docker return traffic.
 - Fixed host-access routing for the combined VPN launcher: connected local networks bypass the AmneziaWG full tunnel, and additional networks can be configured with `HOST_ACCESS_NETWORKS` so SSH access remains available.
 - Fixed combined VPN shutdown so the Check Point bridge cannot retain the lifecycle lock, its process tree is stopped together with the Docker log and authentication workers, and orphaned Docker/network resources are cleaned up.
+- Fixed Check Point bridge startup with rootless Docker configurations: the scripts use rootful Docker for the privileged IPsec container and store IKE sessions in a Docker volume instead of the inaccessible `/opt/snx` path.
+- Fixed the AmneziaWG launcher leaking DNS to the physical uplink when the selected profile has no usable DNS servers: it now configures fallback DNS servers from `AWG_FALLBACK_DNS` (default `1.1.1.1,8.8.8.8`) on the tunnel with the `~.` routing domain.
+- Fixed the Check Point bridge losing the physical uplink after the first route setup: `find_uplink_route` no longer re-queries the default route with `dev <interface>`, whose output omits the `dev` field and made every subsequent call fail.
 
 ## v6.2.4 (2026-08-12)
 * macOS: fixed the installer failing to upgrade over a running daemon (#241).

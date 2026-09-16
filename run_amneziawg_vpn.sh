@@ -16,6 +16,7 @@ AWG_CONTAINER="${AWG_CONTAINER:-}"
 AWG_PROFILE_INDEX="${AWG_PROFILE_INDEX:-}"
 AWG_PROFILE_NAME="${AWG_PROFILE_NAME:-}"
 AWG_SET_DNS="${AWG_SET_DNS:-true}"
+AWG_FALLBACK_DNS="${AWG_FALLBACK_DNS:-1.1.1.1,8.8.8.8}"
 AWG_ENABLE_IPV6="${AWG_ENABLE_IPV6:-auto}"
 AWG_START_TIMEOUT="${AWG_START_TIMEOUT:-10}"
 RUN_UID="${SUDO_UID:-${UID:-$(id -u)}}"
@@ -56,6 +57,9 @@ usage() {
   --engine PATH         Путь к бинарнику amneziawg-go
   --no-dns              Не менять настройки systemd-resolved
   -h, --help            Показать эту справку
+
+Переменные окружения:
+  AWG_FALLBACK_DNS      Резервные DNS через запятую, если в профиле их нет или они некорректны (по умолчанию 1.1.1.1,8.8.8.8)
 EOF
 }
 
@@ -240,11 +244,16 @@ configure_routes() {
 }
 configure_dns() {
 	case "$AWG_SET_DNS" in false|no|0) return 0;; true|yes|1);; *) error "AWG_SET_DNS должен быть true или false."; return 1;; esac
-	[ -n "$PROFILE_DNS" ] || { warn "В профиле не указаны DNS-серверы; настройки DNS не меняются."; return 0; }
 	command -v resolvectl >/dev/null 2>&1 || { warn "resolvectl не найден; настройки DNS не меняются."; return 0; }
-	local dns_server; local -a dns_servers=()
-	for dns_server in ${PROFILE_DNS//,/ }; do [[ "$dns_server" =~ ^[0-9a-fA-F:.]+$ ]] && dns_servers+=("$dns_server"); done
-	[ "${#dns_servers[@]}" -gt 0 ] || { warn "DNS из профиля не удалось распознать; настройки DNS не меняются."; return 0; }
+	local dns_source="$PROFILE_DNS" dns_server
+	local -a dns_servers=()
+	for dns_server in ${dns_source//,/ }; do [[ "$dns_server" =~ ^[0-9a-fA-F:.]+$ ]] && dns_servers+=("$dns_server"); done
+	if [ "${#dns_servers[@]}" -eq 0 ]; then
+		[ -n "$AWG_FALLBACK_DNS" ] || { warn "DNS-серверы не заданы ни в профиле, ни в AWG_FALLBACK_DNS; настройки DNS не меняются."; return 0; }
+		warn "В профиле нет корректных DNS-серверов; используются резервные: $AWG_FALLBACK_DNS."
+		for dns_server in ${AWG_FALLBACK_DNS//,/ }; do [[ "$dns_server" =~ ^[0-9a-fA-F:.]+$ ]] && dns_servers+=("$dns_server"); done
+		[ "${#dns_servers[@]}" -gt 0 ] || { warn "Резервные DNS-серверы (AWG_FALLBACK_DNS) некорректны; настройки DNS не меняются."; return 0; }
+	fi
 	run_root resolvectl dns "$AWG_IF_NAME" "${dns_servers[@]}"; run_root resolvectl domain "$AWG_IF_NAME" '~.'
 }
 

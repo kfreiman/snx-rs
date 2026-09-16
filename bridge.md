@@ -204,6 +204,8 @@ sequenceDiagram
 | `HOST_ACCESS_NETWORKS` | пусто | Дополнительные IPv4-сети, из которых нужен доступ к хосту, через пробел или запятую; локальные подключённые сети добавляются автоматически |
 | `AMNEZIA_CONFIG_FILE` | `~/.config/AmneziaVPN.ORG/AmneziaVPN.conf` | Конфигурация, из которой извлекаются IPv4 endpoints Amnezia |
 | `AMNEZIA_ENDPOINTS` | пусто | Явный список IPv4 endpoints Amnezia через пробел или запятую |
+| `SNX_SESSIONS_VOLUME` | `snx-rs-sessions` | Docker volume или bind mount для `/var/cache/snx-rs` |
+| `DOCKER_USE_SUDO` | `auto` | Использовать rootful Docker через `sudo`; rootless Docker для IPsec bridge не поддерживается |
 
 В самом `docker run` также зафиксированы параметры:
 
@@ -212,7 +214,7 @@ sequenceDiagram
 - `/dev/net/tun`;
 - `NET_ADMIN` и `SYS_ADMIN`;
 - публикация `7779:7779`;
-- volume `/opt/snx/sessions:/var/cache/snx-rs/sessions`;
+- volume `snx-rs-sessions:/var/cache/snx-rs` (переопределяется через `SNX_SESSIONS_VOLUME`);
 - read-only bind `/lib/modules`;
 - IPsec, persistent IKE session и split-route режим;
 - `--log-level debug`.
@@ -267,9 +269,9 @@ sequenceDiagram
 - Образ с тегом `latest` изменяем и не обеспечивает воспроизводимость.
 - Включён `debug`-лог, а логи контейнера не классифицируются по чувствительности.
 - Нет ограничения размера и ротации `LOG_FILE`.
-- Нет явного `sudo -v` в начале, поэтому запрос пароля может произойти в середине операции.
+- Контейнер требует rootful Docker; текущий rootless Docker автоматически заменяется системным Docker через `sudo`.
 - Фиксированный локальный порт и широкая обработка callback-запросов требуют проверки источника, срока жизни и одноразовости token.
-- Состояние IKE хранится в bind mount, но политика прав доступа к `/opt/snx/sessions` в скрипте не проверяется.
+- Политика прав доступа к пользовательскому bind mount, если задан `SNX_SESSIONS_VOLUME`, в скрипте не проверяется.
 
 ### Сопровождение
 

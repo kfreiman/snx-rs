@@ -35,7 +35,9 @@ AWG_LOG_FILE="${AWG_LOG_FILE:-$AWG_STATE_DIR/amneziawg.log}"
 LOG_FILE="${LOG_FILE:-$SCRIPT_DIR/snx_bridge_vpn.log}"
 BRIDGE_LOG_FILE="$LOG_FILE"
 COMBINED_LOG_FILE="${COMBINED_LOG_FILE:-$STATE_DIR/combined.log}"
-export CONTAINER_NAME AWG_IF_NAME IF_NAME AWG_ROUTE_TABLE AWG_RULE_PRIORITY HOST_ROUTE_TABLE HOST_ROUTE_RULE_PRIORITY HOST_ACCESS_NETWORKS LOG_FILE
+DOCKER_USE_SUDO="${DOCKER_USE_SUDO:-auto}"
+DOCKER_SUDO=false
+export CONTAINER_NAME AWG_IF_NAME IF_NAME AWG_ROUTE_TABLE AWG_RULE_PRIORITY HOST_ROUTE_TABLE HOST_ROUTE_RULE_PRIORITY HOST_ACCESS_NETWORKS LOG_FILE DOCKER_USE_SUDO
 
 BRIDGE_PID=""
 LOCK_FD=""
@@ -75,6 +77,10 @@ HOST_ACCESS_NETWORKS=сеть1,сеть2 в .env.
 Перед запуском скрипт останавливает активный AmneziaVPN.service, который
 создаёт конфликтующий интерфейс amn0. Отключить это можно через
 STOP_CONFLICTING_AMNEZIA=false, но тогда конфликт нужно устранить вручную.
+
+Для Check Point bridge нужен rootful Docker. Если выбран rootless Docker,
+скрипт автоматически использует системный Docker через sudo. Поведение можно
+настроить через DOCKER_USE_SUDO=auto|true|false.
 EOF
 }
 
@@ -105,6 +111,74 @@ warn() {
 error() {
 	printf '%b[ERROR]%b %s\n' "$RED" "$NC" "$1" >&2
 	log ERROR "$1"
+}
+
+docker() {
+	if [ "$DOCKER_SUDO" = true ]; then
+		sudo -n docker --context default "$@"
+	else
+		command docker "$@"
+	fi
+}
+
+configure_docker() {
+	case "$DOCKER_USE_SUDO" in
+		true|false|auto) ;;
+		*)
+			error "DOCKER_USE_SUDO должен быть auto, true или false."
+			return 1
+			;;
+	esac
+
+	local security_options=""
+	if [ "$DOCKER_USE_SUDO" != true ]; then
+		security_options=$(command docker info --format '{{json .SecurityOptions}}' 2>/dev/null || true)
+	fi
+
+	if [ "$DOCKER_USE_SUDO" = true ]; then
+		if ! sudo -n docker --context default info >/dev/null 2>&1; then
+			error "Для Check Point bridge нужен rootful Docker. Запустите системный Docker и убедитесь, что sudo доступен."
+			return 1
+		fi
+		DOCKER_SUDO=true
+		export DOCKER_USE_SUDO
+		return 0
+	fi
+
+	if [ "$DOCKER_USE_SUDO" = auto ] && [ -z "$security_options" ]; then
+		if sudo -n docker --context default info >/dev/null 2>&1; then
+			info "Текущий Docker daemon недоступен пользователю; для Check Point bridge используется системный Docker через sudo."
+			DOCKER_SUDO=true
+			DOCKER_USE_SUDO=true
+			export DOCKER_USE_SUDO
+			return 0
+		fi
+	fi
+
+	if [[ "$security_options" == *rootless* ]]; then
+		if [ "$DOCKER_USE_SUDO" = false ]; then
+			error "Rootless Docker не подходит для Check Point bridge; используйте rootful Docker или DOCKER_USE_SUDO=auto."
+			return 1
+		fi
+		info "Обнаружен rootless Docker; для Check Point bridge используется системный Docker через sudo."
+		if ! sudo -n docker --context default info >/dev/null 2>&1; then
+			error "Для Check Point bridge нужен rootful Docker. Запустите системный Docker и убедитесь, что sudo доступен."
+			return 1
+		fi
+		DOCKER_SUDO=true
+		DOCKER_USE_SUDO=true
+		export DOCKER_USE_SUDO
+		return 0
+	fi
+
+	if [ -z "$security_options" ] || ! command docker info >/dev/null 2>&1; then
+		error "Не удалось проверить Docker daemon."
+		return 1
+	fi
+
+	DOCKER_SUDO=false
+	DOCKER_USE_SUDO=false
+	export DOCKER_USE_SUDO
 }
 
 init_state() {
@@ -156,6 +230,10 @@ check_dependencies() {
 			exit 1
 		}
 	done
+	if ! type -P docker >/dev/null 2>&1; then
+		error "Отсутствует необходимая утилита: docker"
+		exit 1
+	fi
 
 	[ -x "$AWG_SCRIPT" ] || {
 		error "Не найден исполняемый скрипт AmneziaWG: $AWG_SCRIPT"
@@ -191,6 +269,7 @@ check_dependencies() {
 		error "Не удалось получить права sudo."
 		exit 1
 	}
+	configure_docker || exit 1
 }
 
 conflicting_amnezia_interfaces() {
