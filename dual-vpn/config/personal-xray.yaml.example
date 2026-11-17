@@ -1,0 +1,8 @@
+# Персональный провайдер: Xray (VLESS TCP/REALITY через OneXrayCore).
+# Приватный профиль VLESS лежит в profile.json (600), не в этом файле.
+type: xray
+profile: ~/.config/xray-vpn/profile.json
+core: ~/.local/bin/OneXrayCore
+ipv6: auto
+bypass: []
+skip_probe: false

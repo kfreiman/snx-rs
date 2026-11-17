@@ -1,0 +1,20 @@
+# Корпоративный провайдер: Check Point snx-rs в Docker (upstream ancwrd1/snx-rs).
+# Секреты IdP — в .env (PLAYWRIGHT_*), не здесь.
+type: snx-docker
+server_name: achird.emergingtravel.com
+login_type: vpn_etg_google_ravpn
+if_name: etg_vpn
+image: ghcr.io/leleobhz/snx-rs-docker:6.2.4
+container_name: snx-rs-vpn
+sessions_volume: snx-rs-sessions
+route_table: 18001
+rule_priority: 50
+# default: шлюз идёт по обычному default (через personal при dual).
+# Прямой пин за uplink в сети с DPI даёт тайм-аут CCC; uplink — только вне dual.
+gateway_via: default
+host_access_networks: []
+dns_servers: [10.40.22.100, 10.40.22.101]
+dns_domains: []
+playwright_enabled: true
+# ожидание интерфейса etg_vpn (IdP-авторизация + Google Prompt)
+tunnel_timeout: 90

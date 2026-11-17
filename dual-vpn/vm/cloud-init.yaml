@@ -1,0 +1,9 @@
+#cloud-config
+package_update: true
+packages:
+  - python3-yaml
+  - python3-dbus
+  - docker.io
+  - iptables
+  - iproute2
+  - curl

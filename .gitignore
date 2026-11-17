@@ -8,3 +8,5 @@
 /snx_bridge_vpn.log
 __pycache__/
 *.pyc
+/profile.json
+/dual-vpn/docs/PROGRESS.md.local

@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+REPO = ROOT.parent
+for entry in (str(ROOT), str(REPO)):
+    if entry not in sys.path:
+        sys.path.insert(0, entry)
+
+from dual_vpn.cli import main
+
+if __name__ == "__main__":
+    raise SystemExit(main())

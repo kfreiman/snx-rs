@@ -1,0 +1,19 @@
+# dual-vpn: главный конфиг оркестратора. Секретов здесь быть не должно.
+# Реальный файл: ~/.config/dual-vpn/dual-vpn.yaml (права 600).
+version: 1
+start_order: [personal, corp]
+providers:
+  personal:
+    type: xray
+    config: ~/.config/dual-vpn/providers/personal.yaml
+  corp:
+    type: snx-docker
+    config: ~/.config/dual-vpn/providers/corp.yaml
+health:
+  url: https://llmgate.etg.team
+  interval: 20
+  timeout: 8
+  failure_threshold: 3
+log:
+  file: ~/.local/state/dual-vpn/dual-vpn.log
+  level: info
