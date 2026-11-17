@@ -2,16 +2,16 @@
 
 Check [this repository](https://github.com/leleobhz/snx-rs-docker) for a docker container.
 
-## `run_bridge_vpn.sh` IdP authentication
+## Check Point bridge IdP authentication
 
-`run_bridge_vpn.sh` watches the standalone container logs for an identity-provider challenge. When the challenge URL is printed, it starts a separate Playwright Docker container with host networking. The Playwright container follows the redirect to the published `127.0.0.1:7779` callback, so the VPN container receives the authentication result without opening a host browser.
+`run_combined_vpn.sh bridge` watches the standalone container logs for an identity-provider challenge. When the challenge URL is printed, it starts a separate Playwright Docker container with host networking. The Playwright container follows the redirect to the published `127.0.0.1:7779` callback, so the VPN container receives the authentication result without opening a host browser.
 
 The helper image is built lazily from `docker/playwright/Dockerfile`. The script automatically loads `./.env` (or the file specified by `ENV_FILE`). Configure the identity-provider credentials before starting the bridge:
 
 ```sh
 export PLAYWRIGHT_USERNAME='user@example.com'
 export PLAYWRIGHT_PASSWORD='password'
-./run_bridge_vpn.sh
+./run_combined_vpn.sh bridge
 ```
 
 `PLAYWRIGHT_OTP` can contain a one-time code when the provider exposes a compatible OTP input. A named Docker volume, `snx-rs-playwright-profile` by default, keeps the browser session between authentication attempts. The normal combined-VPN stop does not remove this volume, so it can be reused after a restart. Set `PLAYWRIGHT_PROFILE_VOLUME=` to disable it, or remove the volume to force a new login.
@@ -20,7 +20,7 @@ For Google Prompt, approve the sign-in notification on the phone while the worke
 
 ## Check Point вместе с AmneziaVPN
 
-`run_bridge_vpn.sh` не добавляет маршруты Check Point только в основную таблицу Linux. Он создаёт отдельную таблицу policy routing (по умолчанию `18001`) и правила с приоритетом `50`: адрес Check Point отправляется через обычный физический интерфейс, а корпоративные подсети — в Docker bridge. Поэтому включение или выключение AmneziaVPN не перехватывает ни IPsec-соединение, ни трафик через Check Point.
+`run_combined_vpn.sh bridge` не добавляет маршруты Check Point только в основную таблицу Linux. Он создаёт отдельную таблицу policy routing (по умолчанию `18001`) и правила с приоритетом `50`: адрес Check Point отправляется через обычный физический интерфейс, а корпоративные подсети — в Docker bridge. Поэтому включение или выключение AmneziaVPN не перехватывает ни IPsec-соединение, ни трафик через Check Point.
 
 При необходимости таблицу и приоритет можно изменить через `HOST_ROUTE_TABLE` и `HOST_ROUTE_RULE_PRIORITY`. Скрипт повторно применяет policy-маршруты во время health-check, а при завершении удаляет только правила своей таблицы.
 
@@ -28,20 +28,20 @@ For Google Prompt, approve the sign-in notification on the phone while the worke
 
 ## Единый запуск двух VPN
 
-Для одновременной работы AmneziaWG и Check Point bridge используйте новый
-оркестратор:
+Для одновременной работы AmneziaWG и Check Point bridge используйте единый
+скрипт:
 
 ```sh
 ./run_combined_vpn.sh start
 ```
 
-Он намеренно запускает AmneziaWG первым, а `run_bridge_vpn.sh` вторым. После
-поднятия AmneziaWG bridge создаёт правила с приоритетом `50`, поэтому
-корпоративные подсети идут в Check Point, а остальной трафик — через
-AmneziaWG. В эту же policy-таблицу добавляется правило для Docker bridge
-subnet: ответы от Check Point возвращаются в контейнер, а не попадают в
-full-tunnel AmneziaWG. Bridge также закрепляет адреса endpoint-ов Amnezia за
-обычным физическим интерфейсом, чтобы туннели не зацикливались.
+Скрипт сначала поднимает Amnezia (подключённый AmneziaVPN или встроенный
+`amneziawg-go`), а затем Check Point bridge. Bridge создаёт правила с
+приоритетом `50`, поэтому корпоративные подсети идут в Check Point, а
+остальной трафик — через Amnezia. В эту же policy-таблицу добавляется правило
+для Docker bridge subnet: ответы от Check Point возвращаются в контейнер, а не
+попадают в full-tunnel Amnezia. Bridge также закрепляет адреса endpoint-ов
+Amnezia за обычным физическим интерфейсом, чтобы туннели не зацикливались.
 
 Управление:
 
@@ -54,12 +54,19 @@ full-tunnel AmneziaWG. Bridge также закрепляет адреса endpo
 
 Опции выбора профиля AmneziaWG передаются после `start` или `restart`,
 например `./run_combined_vpn.sh start --profile 0`. Скрипт не нужно запускать
-от root; оба исходных скрипта сами используют `sudo` для сетевых операций.
+от root; встроенные модули сами используют `sudo` для сетевых операций.
+
+По умолчанию `run_combined_vpn.sh` работает в режиме `AMNEZIA_MODE=auto`:
+если `AmneziaVPN.service` уже подключён и интерфейс `amn0` существует, скрипт
+оставляет клиент запущенным и использует его как первый VPN вместо собственного
+`amneziawg-go`. Это удобно, когда AmneziaVPN уже проверенно работает. Принудительно
+выбрать поведение можно через `AMNEZIA_MODE=existing` (использовать клиент) или
+`AMNEZIA_MODE=script` (остановить клиент и запустить `amneziawg-go`).
 
 DNS для общего трафика настраивается на интерфейсе AmneziaWG с routing-доменом `~.`.
 Если в выбранном профиле нет корректных DNS-серверов (например, `AmneziaVPN.conf`
 не содержит `primaryDns`/`secondaryDns` и в профиле остаются плейсхолдеры), используются
-резервные серверы из `AWG_FALLBACK_DNS` (по умолчанию `1.1.1.1,8.8.8.8`), чтобы DNS-запросы
+резервные серверы из `AWG_FALLBACK_DNS` (по умолчанию `1.1.1.1,1.0.0.1`), чтобы DNS-запросы
 не уходили на фильтрующий DNS физического провайдера. Пустое `AWG_FALLBACK_DNS=`
 отключает резерв и оставляет DNS без изменений.
 

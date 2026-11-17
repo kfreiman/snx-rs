@@ -18,5 +18,6 @@
 * [Translations](translations.md)
 * [Building from Sources](building.md)
 * [Docker Usage](docker.md)
+* [Xray terminal client (Linux)](xray-vpn.md)
 * [Acknowledgements](acknowledgements.md)
 * [License](license.md)

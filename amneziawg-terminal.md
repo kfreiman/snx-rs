@@ -1,12 +1,13 @@
 # Терминальное управление AmneziaWG
 
-`run_amneziawg_vpn.sh` подключает AmneziaWG через userspace
+`run_combined_vpn.sh amnezia` подключает AmneziaWG через userspace
 `amneziawg-go`. Для одновременной работы с Check Point bridge используйте
-`run_combined_vpn.sh`: он запускает AmneziaWG первым, а затем настраивает
-корпоративные маршруты bridge поверх него. Перед этим он останавливает
-`AmneziaVPN.service`, если обычный клиент уже создал интерфейс `amn0`.
+`run_combined_vpn.sh start`: по умолчанию он переиспользует уже подключённый
+`AmneziaVPN.service`, если интерфейс `amn0` существует, и только затем
+настраивает корпоративные маршруты bridge. Если клиент не подключён, скрипт
+останавливает его и запускает встроенный `amneziawg-go`.
 
-`run_amneziawg_vpn.sh` по-прежнему можно запускать отдельно. В таком случае
+`run_combined_vpn.sh amnezia` по-прежнему можно запускать отдельно. В таком случае
 перед тестом остановите другой основной VPN-клиент и убедитесь, что его
 маршруты и DNS очищены.
 
@@ -20,7 +21,7 @@
 ./run_combined_vpn.sh stop
 ```
 
-Для запуска только AmneziaWG используется `run_amneziawg_vpn.sh`.
+Для запуска только AmneziaWG используется `run_combined_vpn.sh amnezia`.
 
 Скрипт читает тот же файл, который использует AmneziaVPN:
 
@@ -32,31 +33,31 @@
 профили можно посмотреть без вывода ключей:
 
 ```bash
-./run_amneziawg_vpn.sh profiles
-./run_amneziawg_vpn.sh config
+./run_combined_vpn.sh amnezia profiles
+./run_combined_vpn.sh amnezia config
 ```
 
 Подключение, проверка состояния и отключение:
 
 ```bash
-./run_amneziawg_vpn.sh start
-./run_amneziawg_vpn.sh status
-./run_amneziawg_vpn.sh stop
+./run_combined_vpn.sh amnezia start
+./run_combined_vpn.sh amnezia status
+./run_combined_vpn.sh amnezia stop
 ```
 
 Дополнительные команды:
 
 ```bash
-./run_amneziawg_vpn.sh restart
-./run_amneziawg_vpn.sh logs
+./run_combined_vpn.sh amnezia restart
+./run_combined_vpn.sh amnezia logs
 ```
 
 Для выбора другого сохранённого профиля используется его индекс или точное
 название:
 
 ```bash
-./run_amneziawg_vpn.sh start --profile 0
-./run_amneziawg_vpn.sh start --profile Stockholm_BooLoo_1
+./run_combined_vpn.sh amnezia start --profile 0
+./run_combined_vpn.sh amnezia start --profile Stockholm_BooLoo_1
 ```
 
 Первый запуск получает права через `sudo`. Сам скрипт не нужно запускать от
@@ -91,7 +92,7 @@ AmneziaVPN, когда публичный адрес определяется к
 исключить из маршрутизации явно:
 
 ```bash
-AWG_ENABLE_IPV6=false ./run_amneziawg_vpn.sh start
+AWG_ENABLE_IPV6=false ./run_combined_vpn.sh amnezia start
 ```
 
 ## Настройка без изменения файла конфигурации
@@ -114,7 +115,7 @@ AWG_ENABLE_IPV6=false ./run_amneziawg_vpn.sh start
 Например, отдельный профиль и отключённый DNS:
 
 ```bash
-AWG_PROFILE_INDEX=0 AWG_SET_DNS=false ./run_amneziawg_vpn.sh start
+AWG_PROFILE_INDEX=0 AWG_SET_DNS=false ./run_combined_vpn.sh amnezia start
 ```
 
 Скрипт не сохраняет импортированную конфигурацию в репозитории и не выводит
@@ -127,7 +128,7 @@ AWG_PROFILE_INDEX=0 AWG_SET_DNS=false ./run_amneziawg_vpn.sh start
 handshake может появиться не мгновенно — `PersistentKeepalive` берётся из
 сохранённого профиля.
 
-В отличие от `run_bridge_vpn.sh`, этот вариант не запускает Docker и не
+В отличие от `run_combined_vpn.sh bridge`, этот вариант не запускает Docker и не
 настраивает корпоративные маршруты SNX-RS. Его задача — самостоятельно
 поднять основной AWG-клиент на хосте и дать ему управляемый из терминала
 lifecycle.

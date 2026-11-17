@@ -1,12 +1,17 @@
 ## Unreleased
 
+- Added a standalone Linux CLI for OneXray VLESS/REALITY profiles, with TUN, split DNS, Check Point gateway exclusions, and start/stop/status commands.
 - Added an experimental terminal-controlled AmneziaWG launcher that imports saved AmneziaVPN profiles without changing the existing SNX-RS bridge.
 - Added `run_combined_vpn.sh` to start AmneziaWG before the Check Point bridge, stop conflicting `AmneziaVPN.service` instances, and preserve corporate-route precedence, including Docker return traffic.
 - Fixed host-access routing for the combined VPN launcher: connected local networks bypass the AmneziaWG full tunnel, and additional networks can be configured with `HOST_ACCESS_NETWORKS` so SSH access remains available.
 - Fixed combined VPN shutdown so the Check Point bridge cannot retain the lifecycle lock, its process tree is stopped together with the Docker log and authentication workers, and orphaned Docker/network resources are cleaned up.
 - Fixed Check Point bridge startup with rootless Docker configurations: the scripts use rootful Docker for the privileged IPsec container and store IKE sessions in a Docker volume instead of the inaccessible `/opt/snx` path.
-- Fixed the AmneziaWG launcher leaking DNS to the physical uplink when the selected profile has no usable DNS servers: it now configures fallback DNS servers from `AWG_FALLBACK_DNS` (default `1.1.1.1,8.8.8.8`) on the tunnel with the `~.` routing domain.
+- Fixed the AmneziaWG launcher leaking DNS to the physical uplink when the selected profile has no usable DNS servers: it now configures fallback DNS servers from `AWG_FALLBACK_DNS` (default `1.1.1.1,1.0.0.1`) on the tunnel with the `~.` routing domain.
+- Added `AMNEZIA_MODE` to `run_combined_vpn.sh`: it can reuse an already connected `AmneziaVPN.service` instead of stopping it and starting its own `amneziawg-go`, avoiding breakage when the built-in AmneziaWG launcher cannot pass traffic.
+- Merged the standalone AmneziaWG and Check Point bridge launchers into `run_combined_vpn.sh`. The AWG and bridge implementations are embedded modules, exposed as `run_combined_vpn.sh amnezia ...` and `run_combined_vpn.sh bridge ...`; the old `run_amneziawg_vpn.sh` and `run_bridge_vpn.sh` entry points and the separate `amneziawg_terminal.py` helper were removed.
 - Fixed the Check Point bridge losing the physical uplink after the first route setup: `find_uplink_route` no longer re-queries the default route with `dev <interface>`, whose output omits the `dev` field and made every subsequent call fail.
+- Fixed the Check Point bridge exiting immediately during startup when DNS resolution or `docker network inspect bridge` failed: those probes no longer abort under `set -e`/`pipefail`, so the launcher falls back to the reserved gateway IP and `docker0` as intended.
+- Fixed the merged bridge module inheriting `set -euo pipefail` from the combined launcher. The standalone bridge intentionally ran without errexit/nounset, so embedding it changed behavior and made startup abort silently; the module now restores its original shell options.
 
 ## v6.2.4 (2026-08-12)
 * macOS: fixed the installer failing to upgrade over a running daemon (#241).
