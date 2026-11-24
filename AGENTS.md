@@ -150,8 +150,22 @@ User-facing docs are in `docs/`. If you change a config option, CLI flag, tunnel
 * `features.md` — the capability bullet list.
 * `tunnel-types.md`, `dns-configuration.md`, `certificates.md`, etc. — topic deep-dives.
 * `troubleshooting.md` — add new entries when you diagnose a recurring issue.
+* [`tunnel1-infrastructure.md`](docs/tunnel1-infrastructure.md) — the maintainer's current tunnel1 services, access and `dual-vpn` profile-switching procedure. Keep credentials, VLESS links, UUIDs, and REALITY keys out of the repository.
 
 Also add a short bullet to `CHANGELOG.md` for any user-visible change, under the `v6.0.0 (TBD)` section (or whatever the current in-flight version is).
+
+## Maintainer's tunnel1 / `dual-vpn` setup
+
+See [`docs/tunnel1-infrastructure.md`](docs/tunnel1-infrastructure.md) for the current server, panel, HTTPS site, port assignments, and secret-safe connection instructions. Never commit its VLESS client link, `profile.json`, panel credentials/API token, UUID, REALITY keys, or the private 3x-ui database backup.
+
+To select a new personal server in this workstation's `dual-vpn` setup:
+
+1. `dual-vpn` uses OneXrayCore but does **not** follow the server selected in OneXray GUI. The personal provider uses its separately configured profile, currently `~/.config/xray-vpn/profile.json`; do not assume an existing file contains the desired server. Check `~/.config/dual-vpn/providers/personal.yaml` if the profile path has been customized.
+2. From the repository root, run `./xray-vpn import` and paste the new VLESS link into its hidden prompt. Do not put the link in shell history, a command argument, or Git. Import supports VLESS TCP/RAW + REALITY only.
+3. Disconnect and close OneXray GUI before starting the CLI/Core.
+4. Run `./dual-vpn/dual-vpn status`. If `dual-vpn` is already running, use `./dual-vpn/dual-vpn restart` to load the new profile; `start` alone does not switch an already-running Xray. If it is stopped, use `./dual-vpn/dual-vpn start`. Verify with `status`.
+
+Commands are run as the regular user, not through `sudo`. `restart` restarts every configured `dual-vpn` provider, including corporate Check Point, so allow time for both tunnels to reconnect.
 
 ## Runtime modes (useful context for changes)
 

@@ -21,6 +21,21 @@ cp config/corp-snx-docker.yaml.example ~/.config/dual-vpn/providers/corp.yaml
 Запуск — **не** от root и не через `sudo`: CLI сам запросит права для сетевых операций.
 Команды: `start`, `stop`, `restart`, `status`, `doctor`, `logs [--provider NAME]`.
 
+## Смена личного Xray-сервера
+
+Провайдер Xray не читает сервер, выбранный в OneXray GUI: он загружает профиль,
+указанный в `~/.config/dual-vpn/providers/personal.yaml` (обычно
+`~/.config/xray-vpn/profile.json`). Чтобы сменить профиль, из корня репозитория
+выполните `./xray-vpn import` и вставьте ссылку VLESS в скрытый запрос. Затем
+отключите и закройте OneXray GUI. Проверьте `./dual-vpn/dual-vpn status`; если
+Xray уже работает, используйте `./dual-vpn/dual-vpn restart`, иначе —
+`./dual-vpn/dual-vpn start`. Простой `start` не переключает уже работающий Core.
+Перезапуск затрагивает все VPN-провайдеры, включая Check Point. Команды запускайте
+от обычного пользователя; ссылка и сохранённый профиль содержат секреты.
+
+Импорт поддерживает только VLESS TCP/RAW + REALITY. Инструкции для текущего
+сервера и безопасного получения ссылки: [инфраструктура tunnel1](../../docs/tunnel1-infrastructure.md).
+
 ## Что внутри
 
 - `dual-vpn` — точка входа (`python3`, переиспользует пакет `xray_cli` из корня репозитория).

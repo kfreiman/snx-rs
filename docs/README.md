@@ -19,5 +19,6 @@
 * [Building from Sources](building.md)
 * [Docker Usage](docker.md)
 * [Xray terminal client (Linux)](xray-vpn.md)
+* [Infrastructure: tunnel1 and connecting to Xray](tunnel1-infrastructure.md)
 * [Acknowledgements](acknowledgements.md)
 * [License](license.md)
