@@ -157,6 +157,46 @@ class OrchestratorTests(unittest.TestCase):
             self.assertTrue(corp.stopped)
             self.assertFalse(personal.stopped)
 
+    def test_corp_first_excludes_the_later_personal_endpoint(self):
+        class DomainCorp(FakeProvider):
+            @property
+            def cfg(self):
+                return type("Cfg", (), {"gateway_via": "uplink", "route_domains": ["ovh.net"]})()
+
+            def configure_domain_routes(self, ctx, bypasses):
+                self.refreshed_with = bypasses
+
+        with tempfile.TemporaryDirectory() as tmp:
+            corp = DomainCorp("corp")
+            personal = FakeProvider("personal", endpoints=[ipaddress.IPv4Address("203.0.113.42")])
+            orch = self._orch(tmp, {"corp": corp, "personal": personal})
+            with mock.patch.object(orch, "_probe"):
+                orch.start()
+            expected = [ipaddress.IPv4Network("203.0.113.42/32")]
+            self.assertEqual(corp.started_with, expected)
+            self.assertEqual(corp.refreshed_with, expected)
+
+    def test_unresolved_personal_endpoint_blocks_domain_setup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            corp = FakeProvider("corp")
+            personal = FakeProvider("personal")
+            personal.NAME = "xray"
+            orch = self._orch(tmp, {"corp": corp, "personal": personal})
+            with self.assertRaisesRegex(RuntimeError, "адрес Xray"):
+                orch.build_bypasses(["personal"], require_xray=True)
+
+    def test_monitor_does_not_reconnect_after_stop(self):
+        from dual_vpn import state as state_mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            corp = FakeProvider("corp", running=True)
+            personal = FakeProvider("personal")
+            orch = self._orch(tmp, {"corp": corp, "personal": personal})
+            state_mod.write_state(orch.ctx.state_dir, {"phase": "stopped"})
+            self.assertFalse(orch._reconnect("corp", ["corp", "personal"]))
+            self.assertFalse(corp.stopped)
+            self.assertIsNone(corp.started_with)
+
     def test_auth_pending_preserves_container(self):
         from dual_vpn.providers.snx_docker import AuthPendingError
 
@@ -214,6 +254,21 @@ class SnxDockerTests(unittest.TestCase):
             run.return_value.returncode = 0
             snx._resolvectl("dns", "docker0", "10.40.22.100")
         run.assert_called_once_with(["resolvectl", "dns", "docker0", "10.40.22.100"])
+
+    def test_stop_continues_if_domain_cleanup_fails(self):
+        from dual_vpn.config import parse_snx_docker_config
+        from dual_vpn.providers.snx_docker import SnxDockerProvider
+
+        provider = SnxDockerProvider("corp", parse_snx_docker_config(str(ROOT / "dual-vpn/config/corp-snx-docker.yaml.example")))
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch("dual_vpn.domain_routing.DomainRouter.stop", side_effect=RuntimeError("cleanup failed")), \
+             mock.patch("dual_vpn.providers.snx_docker._resolvectl"), \
+             mock.patch.object(provider, "_clear_policy") as clear, \
+             mock.patch.object(provider, "_docker_cmd") as docker:
+            with self.assertRaisesRegex(RuntimeError, "cleanup failed"):
+                provider.stop(Ctx(Path(tmp)))
+            clear.assert_called_once()
+            docker.assert_any_call("rm", "-f", provider.cfg.container_name)
 
     def test_bridge_name_method_not_shadowed(self):
         from dual_vpn.config import parse_snx_docker_config

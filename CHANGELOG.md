@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Added domain-based corporate VPN routing to dual-vpn, with live reload and DNS-derived IPv4 routes.
 - Added a standalone Linux CLI for OneXray VLESS/REALITY profiles, with TUN, split DNS, Check Point gateway exclusions, and start/stop/status commands.
 - Added an experimental terminal-controlled AmneziaWG launcher that imports saved AmneziaVPN profiles without changing the existing SNX-RS bridge.
 - Added `run_combined_vpn.sh` to start AmneziaWG before the Check Point bridge, stop conflicting `AmneziaVPN.service` instances, and preserve corporate-route precedence, including Docker return traffic.

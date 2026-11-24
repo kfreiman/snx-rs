@@ -14,6 +14,7 @@ def _parser():
     start.add_argument("--monitor", action="store_true", help="мониторинг в foreground с автопереподключением")
     commands.add_parser("stop", help="остановить в обратном порядке")
     commands.add_parser("restart", help="stop + start")
+    commands.add_parser("reload-domains", help="применить route_domains без перезапуска VPN")
     commands.add_parser("status", help="состояние провайдеров")
     commands.add_parser("doctor", help="preflight-проверки")
     logs = commands.add_parser("logs", help="логи провайдера")
@@ -35,6 +36,10 @@ def main(argv=None):
                 print(f"Итого замечаний: {len(problems)}")
                 return 1
             print("doctor: OK (замечаний нет)")
+            return 0
+        if args.command == "reload-domains":
+            orch.reload_domains()
+            print("Настройки маршрутизации доменов применены без перезапуска VPN.")
             return 0
         if args.command == "status":
             for name, running, detail, ifaces in orch.status():

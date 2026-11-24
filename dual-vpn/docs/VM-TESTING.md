@@ -20,7 +20,7 @@ multipass mount "$(pwd)" dual-vpn-test:/mnt/dual-vpn
 ## Что проверяется с секретами (уровень 2, вручную)
 
 ```bash
-multipass exec dual-vpn-test -- sudo apt-get install -y docker.io iptables iproute2 curl
+multipass exec dual-vpn-test -- sudo apt-get install -y docker.io iptables iproute2 curl dnsmasq-base nftables python3-dbus
 # скопировать секреты в VM и в каталог ~/.config/dual-vpn/ (600):
 #   ~/.config/xray-vpn/profile.json, .env (PLAYWRIGHT_*), конфиги из ~/.config/dual-vpn/
 multipass exec dual-vpn-test -- /mnt/dual-vpn/dual-vpn doctor
@@ -31,6 +31,15 @@ multipass exec dual-vpn-test -- /mnt/dual-vpn/dual-vpn start
 Google Prompt подтвердите вход на телефоне. Полный E2E (xray + corp) в VM подтверждает:
 `status` (оба `running`), `curl https://llmgate.etg.team` через corp,
 `curl https://api.ipify.org` через xray, split DNS corp-доменов.
+
+Для проверки `route_domains: [ovh.net]` выполните `dual-vpn reload-domains` и проверьте:
+
+- `resolvectl query -4 s3.rbx.io.cloud.ovh.net` использует link `dvpnd...`;
+- `ip route get <IPv4-адрес> mark 0xd5000000` указывает на корпоративный контейнер;
+- несколько `curl -4 -I https://s3.rbx.io.cloud.ovh.net/` подряд получают HTTP-ответ
+  (у корневого S3-URL HEAD может вернуть 405), а не тайм-аут;
+- после `stop` исчезают DNS-link, таблица и принадлежащие helper-контейнеру правила;
+  после `start` они восстанавливаются, не захватывая трафик остальных доменов.
 
 ## Ограничения
 

@@ -20,10 +20,14 @@ class Orchestrator:
             ref = dual_config.providers[name]
             self.providers[name] = build_provider(name, ref.type, ref.config)
 
-    def build_bypasses(self, started):
+    def build_bypasses(self, started, require_xray=False):
         bypasses = []
         for name in started:
-            for endpoint in self.providers[name].endpoints(self.ctx):
+            provider = self.providers[name]
+            endpoints = provider.endpoints(self.ctx)
+            if require_xray and provider.NAME == "xray" and not endpoints:
+                raise RuntimeError("Не удалось определить адрес Xray для исключения из маршрутизации доменов")
+            for endpoint in endpoints:
                 net = ipaddress.IPv4Network(f"{endpoint}/32")
                 if net not in bypasses:
                     bypasses.append(net)
@@ -77,6 +81,12 @@ class Orchestrator:
                 for name in self.cfg.start_order:
                     current = name
                     bypasses = self.build_bypasses(started)
+                    provider = self.providers[name]
+                    if name == "corp" and getattr(provider.cfg, "route_domains", []):
+                        peers = [n for n in self.cfg.start_order if n != "corp"]
+                        for network in self.build_bypasses(peers, require_xray=True):
+                            if network not in bypasses:
+                                bypasses.append(network)
                     print(f"==> start {name} (bypass: {', '.join(str(b) for b in bypasses) or 'нет'})")
                     if not dry_run:
                         self.providers[name].start(self.ctx, bypasses)
@@ -85,6 +95,11 @@ class Orchestrator:
                     if not dry_run:
                         self._probe(name)
                 if not dry_run:
+                    corp = self.providers.get("corp")
+                    if (corp is not None and getattr(corp.cfg, "route_domains", [])
+                            and self.cfg.start_order.index("corp") != len(self.cfg.start_order) - 1):
+                        peers = [n for n in started if n != "corp"]
+                        corp.configure_domain_routes(self.ctx, self.build_bypasses(peers, require_xray=True))
                     try:
                         self._probe_health()
                     except RuntimeError as exc:
@@ -136,12 +151,39 @@ class Orchestrator:
             if errors:
                 raise RuntimeError("; ".join(errors))
 
+    def reload_domains(self):
+        with state_mod.global_lock(self.ctx.state_dir):
+            corp = self.providers.get("corp")
+            if corp is None or corp.NAME != "snx-docker":
+                raise RuntimeError("Для reload-domains нужен корпоративный провайдер snx-docker")
+            peers = [name for name in self.providers if name != "corp"]
+            corp.configure_domain_routes(self.ctx, self.build_bypasses(peers, require_xray=bool(corp.cfg.route_domains)))
+
     def status(self):
         rows = []
         for name in self.cfg.start_order:
             st = self.providers[name].status(self.ctx)
             rows.append((name, st.running, st.detail, st.interfaces))
         return rows
+
+    def _reconnect(self, name, started):
+        try:
+            with state_mod.global_lock(self.ctx.state_dir):
+                if state_mod.read_state(self.ctx.state_dir).get("phase") != "ready":
+                    return False
+                provider = self.providers[name]
+                protect_xray = name == "corp" and bool(getattr(provider.cfg, "route_domains", []))
+                bypasses = self.build_bypasses([n for n in started if n != name], require_xray=protect_xray)
+                provider.stop(self.ctx)
+                provider.start(self.ctx, bypasses)
+                corp = self.providers.get("corp")
+                if name != "corp" and corp is not None and getattr(corp.cfg, "route_domains", []):
+                    peers = [n for n in started if n != "corp"]
+                    corp.configure_domain_routes(self.ctx, self.build_bypasses(peers, require_xray=True))
+            return True
+        except state_mod.LockBusyError:
+            print("WARN переподключение отложено: другая операция dual-vpn ещё выполняется")
+            return True
 
     def monitor(self, interval=None):
         interval = interval or self.cfg.health.interval
@@ -151,6 +193,9 @@ class Orchestrator:
         try:
             while True:
                 time.sleep(interval)
+                if state_mod.read_state(self.ctx.state_dir).get("phase") != "ready":
+                    print("Мониторинг остановлен: VPN отключён или перенастраивается.")
+                    return
                 try:
                     self._probe_health()
                     if "corp" in failures:
@@ -161,8 +206,8 @@ class Orchestrator:
                         print(f"WARN probe corp: {exc} ({failures['corp']}/{self.cfg.health.failure_threshold})")
                         if failures["corp"] >= self.cfg.health.failure_threshold:
                             print("==> reconnect corp")
-                            self.providers["corp"].stop(self.ctx)
-                            self.providers["corp"].start(self.ctx, self.build_bypasses([n for n in started if n != "corp"]))
+                            if not self._reconnect("corp", started):
+                                return
                             failures["corp"] = 0
                 for name in started:
                     try:
@@ -173,8 +218,8 @@ class Orchestrator:
                         print(f"WARN probe {name}: {exc} ({failures[name]}/{self.cfg.health.failure_threshold})")
                         if failures[name] >= self.cfg.health.failure_threshold:
                             print(f"==> reconnect {name}")
-                            self.providers[name].stop(self.ctx)
-                            self.providers[name].start(self.ctx, self.build_bypasses([n for n in started if n != name]))
+                            if not self._reconnect(name, started):
+                                return
                             failures[name] = 0
         except KeyboardInterrupt:
             print("Прервано.")

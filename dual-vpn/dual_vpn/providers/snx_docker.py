@@ -116,6 +116,9 @@ class SnxDockerProvider(VpnProvider):
                 problems.append("PLAYWRIGHT_* не заданы в .env; IdP-авторизация будет недоступна без ручного шага")
         if self.cfg.image.strip().endswith(":latest"):
             problems.append("образ :latest не зашифрирован; задайте версионный тег или digest (см. VERSIONS.md)")
+        if self.cfg.route_domains:
+            from dual_vpn.domain_routing import requirements
+            problems.extend(requirements())
         return problems
 
     def validate(self):
@@ -381,9 +384,26 @@ class SnxDockerProvider(VpnProvider):
         except AuthPendingError:
             print("corp: контейнер запущен, ожидается IdP-авторизация. Подтвердите Google Prompt и запустите start ещё раз.")
             raise
+        self.configure_domain_routes(ctx, bypasses)
         return self.status(ctx)
 
+    def configure_domain_routes(self, ctx, bypasses):
+        from dual_vpn.domain_routing import DomainRouter
+
+        if not self._container_running():
+            raise RuntimeError("Корпоративный VPN-контейнер не запущен")
+        if self._docker_cmd("exec", self.cfg.container_name, "ip", "link", "show", self.cfg.if_name).returncode != 0:
+            raise RuntimeError(f"Интерфейс {self.cfg.if_name} не поднят")
+        DomainRouter(self).start(ctx, bypasses)
+
     def stop(self, ctx):
+        from dual_vpn.domain_routing import DomainRouter
+
+        domain_error = None
+        try:
+            DomainRouter(self).stop()
+        except Exception as exc:
+            domain_error = exc
         corp_dir = self._corp_dir(ctx)
         if self._watcher_stop is not None:
             self._watcher_stop.set()
@@ -397,6 +417,8 @@ class SnxDockerProvider(VpnProvider):
         self._docker_cmd("rm", "-f", self.cfg.container_name)
         for name in ("routes.txt", "gateway_ip.txt"):
             (corp_dir / name).unlink(missing_ok=True)
+        if domain_error is not None:
+            raise RuntimeError(f"Не удалось очистить маршруты доменов: {domain_error}") from domain_error
 
     def status(self, ctx):
         running = self._container_running()
@@ -418,7 +440,11 @@ class SnxDockerProvider(VpnProvider):
                 endpoints.append(ipaddress.IPv4Address(self._gateway_ip))
             except ValueError:
                 pass
-        return ProviderStatus(self.name, running, "container=" + ("up" if running else "down"), interfaces, endpoints)
+        detail = "container=" + ("up" if running else "down")
+        if running and self.cfg.route_domains:
+            from dual_vpn.domain_routing import DomainRouter
+            detail += ", domain-router=" + ("up" if DomainRouter(self).running() else "down")
+        return ProviderStatus(self.name, running, detail, interfaces, endpoints)
 
     def endpoints(self, ctx):
         if self.cfg.gateway_via == "default":
@@ -446,4 +472,8 @@ class SnxDockerProvider(VpnProvider):
         out = self._docker_cmd("exec", self.cfg.container_name, "ip", "link", "show", self.cfg.if_name)
         if out.returncode != 0:
             raise RuntimeError(f"интерфейс {self.cfg.if_name} не поднят (ожидается IdP-авторизация)")
+        if self.cfg.route_domains:
+            from dual_vpn.domain_routing import DomainRouter
+            if not DomainRouter(self).running():
+                raise RuntimeError("маршрутизация доменов не работает; выполните reload-domains")
         return True

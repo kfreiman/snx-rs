@@ -1,5 +1,6 @@
 import ipaddress
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -184,6 +185,22 @@ def _str_list(data, key, where):
     return value
 
 
+def _domain_list(data, key, where):
+    result = []
+    for value in _str_list(data, key, where):
+        try:
+            domain = value.removesuffix(".").encode("idna").decode("ascii").lower()
+        except UnicodeError:
+            raise ConfigError(f"{where}.{key}: некорректный домен {value!r}") from None
+        labels = domain.split(".")
+        if (len(domain) > 253 or len(labels) < 2 or labels[-1].isdigit()
+                or not all(re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) for label in labels)):
+            raise ConfigError(f"{where}.{key}: некорректный домен {value!r}; укажите суффикс без *.")
+        if domain not in result:
+            result.append(domain)
+    return result
+
+
 def load_provider_config(path, expected_type=None):
     data = _load_yaml(path)
     actual = data.get("type")
@@ -231,6 +248,7 @@ class SnxDockerConfig:
     host_access_networks: list = field(default_factory=list)
     dns_servers: list = field(default_factory=list)
     dns_domains: list = field(default_factory=list)
+    route_domains: list = field(default_factory=list)
     playwright_enabled: bool = True
     keepalive: bool = False
     ike_persist: bool = True
@@ -254,6 +272,7 @@ def parse_snx_docker_config(path):
         host_access_networks=_net_list(data, "host_access_networks", where),
         dns_servers=_ip_list(data, "dns_servers", where),
         dns_domains=_str_list(data, "dns_domains", where),
+        route_domains=_domain_list(data, "route_domains", where),
         playwright_enabled=_bool(data, "playwright_enabled", where, default=True),
         keepalive=_bool(data, "keepalive", where),
         ike_persist=_bool(data, "ike_persist", where, default=True),

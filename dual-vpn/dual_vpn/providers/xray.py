@@ -1,4 +1,5 @@
 import ipaddress
+import json
 import socket
 from argparse import Namespace
 from pathlib import Path
@@ -89,21 +90,41 @@ class XrayProvider(VpnProvider):
         return ProviderStatus(self.name, False, "не запущен", interfaces, [])
 
     def endpoints(self, ctx):
+        result = self._runtime_endpoints()
         try:
             profile = _read_profile(self.cfg.profile)
-        except Exception:
-            return []
-        try:
             infos = socket.getaddrinfo(profile.host, profile.port, socket.AF_INET, socket.SOCK_STREAM)
-        except OSError:
-            return []
-        result = []
+        except Exception:
+            return result
         for info in infos:
             try:
-                result.append(ipaddress.IPv4Address(info[4][0]))
+                address = ipaddress.IPv4Address(info[4][0])
             except ValueError:
                 continue
+            if address not in result:
+                result.append(address)
         return result
+
+    def _runtime_endpoints(self):
+        try:
+            cli = self._cli_mod()
+            directory = cli.state_dir()
+            state = cli.read_state(directory)
+            linux = cli._linux()
+            if not linux.worker_matches(state) or not linux.engine_matches(state, directory):
+                return []
+            runtime = json.loads((directory / "runtime.json").read_text(encoding="utf-8"))
+            result = []
+            for outbound in runtime.get("outbounds", []):
+                if outbound.get("tag") != "proxy":
+                    continue
+                for node in outbound.get("settings", {}).get("vnext", []):
+                    address = ipaddress.IPv4Address(node["address"])
+                    if address not in result:
+                        result.append(address)
+            return result
+        except (OSError, ValueError, TypeError, KeyError, AttributeError):
+            return []
 
     def interfaces(self, ctx):
         return ["xraycli0"]
@@ -119,8 +140,6 @@ class XrayProvider(VpnProvider):
 
 
 def _read_profile(path):
-    import json
-
     from xray_cli.config import Profile
 
     data = json.loads(Path(path).read_text(encoding="utf-8"))

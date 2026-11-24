@@ -5,6 +5,10 @@ import stat
 from pathlib import Path
 
 
+class LockBusyError(RuntimeError):
+    pass
+
+
 def state_dir():
     value = os.environ.get("XDG_STATE_HOME", "")
     base = Path(value) if value and Path(value).is_absolute() else Path.home() / ".local/state"
@@ -27,7 +31,7 @@ def global_lock(directory):
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         yield
     except BlockingIOError:
-        raise RuntimeError("Другой dual-vpn уже выполняет операцию") from None
+        raise LockBusyError("Другой dual-vpn уже выполняет операцию") from None
     finally:
         fcntl.flock(fd, fcntl.LOCK_UN)
         os.close(fd)
