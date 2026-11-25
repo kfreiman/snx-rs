@@ -4,6 +4,7 @@ import json
 import os
 import socket
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -47,6 +48,49 @@ class ProfileTests(unittest.TestCase):
         self.assertNotIn(UUID, repr(profile))
         self.assertNotIn(KEY, repr(profile))
         self.assertEqual(profile, type(profile).from_dict(asdict(profile)))
+
+    def test_imports_mihomo_mlkem_hint_without_changing_xray_config(self):
+        original = parse_vless(example_uri(flow="xtls-rprx-vision"))
+        hint = {"support-x25519mlkem768": "true"}
+        imported = parse_vless(example_uri(flow="xtls-rprx-vision", **hint))
+        self.assertEqual(imported, original)
+        self.assertEqual(
+            build_xray_config(imported, "198.51.100.3", []),
+            build_xray_config(original, "198.51.100.3", []),
+        )
+
+    def test_imports_mlkem_hint_from_stdin(self):
+        uri = example_uri(**{"support-x25519mlkem768": "true"})
+        with tempfile.TemporaryDirectory() as directory:
+            env = dict(os.environ, XDG_CONFIG_HOME=directory)
+            result = subprocess.run(
+                [sys.executable, str(cli.LAUNCHER), "import", "--stdin"],
+                input=uri + "\n", text=True, capture_output=True, env=env, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn(UUID, result.stdout + result.stderr)
+            self.assertNotIn(KEY, result.stdout + result.stderr)
+            path = Path(directory) / "xray-vpn" / "profile.json"
+            self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+            profile = json.loads(path.read_text())
+            self.assertEqual(profile["user_id"], UUID)
+            self.assertEqual(profile["public_key"], KEY)
+            self.assertNotIn("support-x25519mlkem768", profile)
+
+    def test_rejects_unenforceable_or_invalid_mlkem_hint(self):
+        for value in ("false", "0", "", "invalid"):
+            with self.subTest(value=value):
+                uri = example_uri(**{"support-x25519mlkem768": value})
+                with self.assertRaises(ProfileError) as error:
+                    parse_vless(uri)
+                self.assertIn("support-x25519mlkem768=true", str(error.exception))
+                self.assertNotIn(UUID, str(error.exception))
+                self.assertNotIn(KEY, str(error.exception))
+        duplicate = example_uri(**{"support-x25519mlkem768": "true"}).replace(
+            "#Laptop", "&support-x25519mlkem768=true#Laptop"
+        )
+        with self.assertRaises(ProfileError):
+            parse_vless(duplicate)
 
     def test_reject_unsupported_or_malformed_profiles(self):
         bad = [

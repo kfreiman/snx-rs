@@ -103,13 +103,18 @@ def parse_vless(uri):
         if key in query:
             raise ProfileError("Повторяющийся параметр VLESS-ссылки")
         query[key] = value
-    allowed = {"encryption", "security", "type", "fp", "pbk", "sid", "sni", "spx", "flow"}
+    allowed = {
+        "encryption", "security", "type", "fp", "pbk", "sid", "sni", "spx", "flow", "support-x25519mlkem768",
+    }
     if set(query) - allowed:
         raise ProfileError("VLESS-ссылка содержит неподдерживаемые параметры")
     if query.get("security") != "reality" or query.get("type", "tcp") not in ("tcp", "raw"):
         raise ProfileError("Поддерживается только VLESS TCP/REALITY")
     if query.get("encryption", "none") != "none":
         raise ProfileError("Поддерживается только encryption=none")
+    # Xray uses the fingerprint's key shares; unlike Mihomo it cannot disable ML-KEM here.
+    if query.get("support-x25519mlkem768", "true") != "true":
+        raise ProfileError("Поддерживается только support-x25519mlkem768=true")
     return Profile(
         host=parsed.hostname,
         port=port,
