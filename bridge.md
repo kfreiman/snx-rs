@@ -16,7 +16,7 @@
 
 Текущая конфигурация по умолчанию рассчитана на:
 
-- VPN-сервер `achird.emergingtravel.com`;
+- VPN-сервер `achird.ostrovok.ru`;
 - интерфейс туннеля `etg_vpn`;
 - тип входа `vpn_etg_google_ravpn`;
 - контейнер `snx-rs-vpn`;
@@ -36,7 +36,7 @@ flowchart LR
     Container[snx-rs-vpn\nprivileged container]
     Snx[snx-rs standalone\nIPsec tunnel]
     Tun[etg_vpn\nVPN-интерфейс в контейнере]
-    Gateway[Check Point VPN gateway\nachird.emergingtravel.com]
+    Gateway[Check Point VPN gateway\nachird.ostrovok.ru]
     Corp[Корпоративные сервисы\nчерез VPN]
     Resolved[systemd-resolved\nна хосте]
     HostRoutes[Маршруты хоста]
@@ -184,7 +184,7 @@ sequenceDiagram
 
 | Переменная | По умолчанию | Назначение |
 | --- | --- | --- |
-| `SERVER_NAME` | `achird.emergingtravel.com` | Имя VPN-сервера |
+| `SERVER_NAME` | `achird.ostrovok.ru` | Имя VPN-сервера |
 | `IF_NAME` | `etg_vpn` | Имя VPN-интерфейса внутри контейнера |
 | `LOGIN_TYPE` | `vpn_etg_google_ravpn` | Идентификатор метода входа Check Point |
 | `LOG_FILE` | `snx_bridge_vpn.log` | Файл лога оркестратора и запуска контейнера |

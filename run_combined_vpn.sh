@@ -665,7 +665,7 @@ if [ -f "$ENV_FILE" ]; then
 	set +a
 fi
 
-SERVER_NAME="${SERVER_NAME:-achird.emergingtravel.com}"
+SERVER_NAME="${SERVER_NAME:-achird.ostrovok.ru}"
 IF_NAME="${IF_NAME:-etg_vpn}"
 LOGIN_TYPE="${LOGIN_TYPE:-vpn_etg_google_ravpn}"
 LOG_FILE="${LOG_FILE:-snx_bridge_vpn.log}"

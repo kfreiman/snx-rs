@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Updated the Check Point VPN gateway domain in dual-vpn from `achird.emergingtravel.com` to `achird.ostrovok.ru` (corp provider config, example config, and bridge launcher default).
 - Fixed Xray VLESS/REALITY imports containing the Mihomo `support-x25519mlkem768=true` hint.
 - Added domain-based corporate VPN routing to dual-vpn, with live reload and DNS-derived IPv4 routes.
 - Added a standalone Linux CLI for OneXray VLESS/REALITY profiles, with TUN, split DNS, Check Point gateway exclusions, and start/stop/status commands.

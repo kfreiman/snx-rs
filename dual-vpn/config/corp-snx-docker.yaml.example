@@ -1,7 +1,7 @@
 # Корпоративный провайдер: Check Point snx-rs в Docker (upstream ancwrd1/snx-rs).
 # Секреты IdP — в .env (PLAYWRIGHT_*), не здесь.
 type: snx-docker
-server_name: achird.emergingtravel.com
+server_name: achird.ostrovok.ru
 login_type: vpn_etg_google_ravpn
 if_name: etg_vpn
 image: ghcr.io/leleobhz/snx-rs-docker:6.2.4
